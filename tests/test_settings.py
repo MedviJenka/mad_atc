@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mad_atc.settings import Settings, get_settings
+from src.settings import Settings, get_settings
 
 LIVEKIT_CREDS = {'LIVEKIT_API_KEY': 'lk-key', 'LIVEKIT_API_SECRET': 'lk-secret'}
 
@@ -21,7 +21,10 @@ def test_requires_livekit_credentials(monkeypatch):
         Settings(_env_file=None, OPENAI_API_KEY='test-key')
 
 
-def test_defaults_are_applied_when_only_the_keys_are_given():
+def test_defaults_are_applied_when_only_the_keys_are_given(monkeypatch):
+    for key in ('OPENAI_MODEL', 'VERBOSE', 'LIVEKIT_TTS_MODEL', 'LIVEKIT_TTS_EMOTION', 'LIVEKIT_STT_MODEL'):
+        monkeypatch.delenv(key, raising=False)
+
     settings = Settings(_env_file=None, OPENAI_API_KEY='test-key', **LIVEKIT_CREDS)
 
     assert settings.OPENAI_API_KEY == 'test-key'

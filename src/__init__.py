@@ -3,18 +3,18 @@ import sys
 
 from livekit.agents.utils import http_context
 
-from mad_atc.agent.main import MadAtcAgent
-from mad_atc.logging import configure_cli_logging
+from .agent.main import MadAtcAgent
+from .cli_output import create_cli_logger, labeled_line, log_colored
 
 
 async def _run(prompt: str) -> None:
-    logger = configure_cli_logging()
+    logger = create_cli_logger()
     agent = MadAtcAgent()
     async with http_context.open() as http_session:
         agent.bind_http_session(http_session)
         roast = await agent.roast(prompt)
-        logger.info('%s', roast)
-        logger.info('voice -> %s', await agent.speak(roast))
+        logger.info(str(roast))
+        log_colored(logger, 'voice -> ', await agent.speak(roast), 'bold blue')
 
 
 def main() -> None:

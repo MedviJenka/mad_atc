@@ -9,7 +9,7 @@ roasts you and still gives you a valid ATC instruction — in text and voice.
 uv sync
 ```
 
-Create a `.env` file (see `src/mad_atc/settings.py` for the full list of keys):
+Create a `.env` file (see `src/settings.py` for the full list of keys):
 
 ```
 OPENAI_API_KEY=sk-...
@@ -43,8 +43,8 @@ Hold ENTER to key the mic from the Oh My Pi terminal UI; release ENTER to transm
 
 ## Layout
 
-- `src/mad_atc/settings.py` — env-driven config (`Config`): OpenAI model, LiveKit TTS/STT models + TTS emotion
-- `src/mad_atc/agent/main.py` — `MadAtcAgent`: `roast()` (text, OpenAI), `transcribe()` (mic → text, Deepgram), `synthesize()`/`speak()` (text → angry voice, Cartesia)
-- `src/mad_atc/agent/config/agents.yaml` — role/goal/backstory, auto-loaded by crewai's `@CrewBase`
-- `src/mad_atc/agent/skills/mad-atc/SKILL.md` — persona reference doc (temper, profession, strict rules)
+- `src/settings.py` — env-driven config (`Config`): OpenAI model, LiveKit TTS/STT models + TTS emotion
+- `src/agent/main.py` — `MadAtcAgent`: `roast()` (text, OpenAI), `transcribe()` (mic → text, Deepgram), `synthesize()`/`speak()` (text → angry voice, Cartesia)
+- `src/agent/config/agents.yaml` — role/goal/backstory, auto-loaded by crewai's `@CrewBase`
+- `src/agent/skills/mad-atc/SKILL.md` — persona reference doc (temper, profession, strict rules)
 - `main.py` — live voice terminal: mic in → transcript → roast → angry voice out

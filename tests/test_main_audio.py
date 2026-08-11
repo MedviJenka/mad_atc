@@ -30,6 +30,29 @@ class _FakeInputStream:
         return False
 
 
+def test_record_until_enter_reports_ready_after_input_stream_is_open(monkeypatch):
+    events = []
+
+    class DelayedFakeInputStream:
+        def __call__(self, *_args, **kwargs):
+            self._kwargs = kwargs
+            return self
+
+        def __enter__(self):
+            events.append('stream-open')
+            return self
+
+        def __exit__(self, *_exc):
+            return False
+
+    monkeypatch.setattr(mad_atc_main.sd, 'InputStream', DelayedFakeInputStream())
+    monkeypatch.setattr('builtins.input', lambda *a, **k: events.append('stop-wait'))
+
+    mad_atc_main.record_until_enter(on_ready=lambda: events.append('ready'))
+
+    assert events == ['stream-open', 'ready', 'stop-wait']
+
+
 def test_record_until_enter_captures_raw_pcm16_audio(monkeypatch):
     chunk = np.array([[1], [2], [3]], dtype='int16')
     monkeypatch.setattr(mad_atc_main.sd, 'InputStream', _FakeInputStream(chunks=[chunk]))
@@ -111,10 +134,15 @@ async def test_run_once_records_transcribes_roasts_and_speaks(monkeypatch, capsy
             assert roast == 'hold short'
             return b'wav'
 
+    def fake_record_until_enter(on_ready=None):
+        if on_ready is not None:
+            on_ready()
+        return b'1' * mad_atc_main.MIN_AUDIO_BYTES
+
     fake_play = MagicMock()
     monkeypatch.setattr(mad_atc_main, 'MadAtcAgent', FakeAgent)
     monkeypatch.setattr(mad_atc_main, 'http_context', FakeHttpContext)
-    monkeypatch.setattr(mad_atc_main, 'record_until_enter', lambda: b'1' * mad_atc_main.MIN_AUDIO_BYTES)
+    monkeypatch.setattr(mad_atc_main, 'record_until_enter', fake_record_until_enter)
     monkeypatch.setattr(mad_atc_main, 'play', fake_play)
 
     exit_code = await mad_atc_main.run_once()

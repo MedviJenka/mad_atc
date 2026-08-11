@@ -3,15 +3,19 @@ import io
 import wave
 from functools import cached_property
 from pathlib import Path
-
+import sys
 from crewai import Agent
 from crewai.project import CrewBase, agent
 from livekit import rtc
 from livekit.agents import inference
 from livekit.agents import stt as lk_stt
-
-from mad_atc.config import AgentConfig
-from mad_atc.settings import Config
+if __package__ in {None, ''}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from src.config import AgentConfig
+    from src.settings import Config
+else:
+    from ..config import AgentConfig
+    from ..settings import Config
 
 TRANSCRIBE_TIMEOUT = 15  # seconds to wait for a final transcript before giving up
 
@@ -87,3 +91,7 @@ class MadAtcAgent(AgentConfig):
             return ''
         finally:
             await stream.aclose()
+
+
+if __name__ == '__main__':
+    print('MadAtcAgent module loaded. Run `uv run python main.py` for the live voice terminal.')
