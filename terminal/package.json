@@ -1,0 +1,16 @@
+{
+  "name": "terminal",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "npx --yes bun run src/index.ts",
+    "test": "npx --yes bun test"
+  },
+  "dependencies": {
+    "@oh-my-pi/pi-tui": "^17.2.13"
+  }
+}
