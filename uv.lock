@@ -1516,6 +1516,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "crewai" },
+    { name = "livekit" },
     { name = "livekit-agents" },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
@@ -1532,6 +1533,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "crewai", specifier = ">=1.15.14" },
+    { name = "livekit", specifier = ">=1.1.14" },
     { name = "livekit-agents", specifier = ">=1.6.9" },
     { name = "pydantic-settings", specifier = ">=2.15.0" },
     { name = "pyyaml", specifier = ">=6.0.3" },

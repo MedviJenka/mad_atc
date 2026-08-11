@@ -39,7 +39,9 @@ Live voice terminal — speak to it with your mic, hear it roast you back:
 uv run python main.py
 ```
 
-Hold ENTER to key the mic from the Oh My Pi terminal UI; release ENTER to transmit. Ctrl+C signs off.
+Press SPACE to key the mic, speak, then press SPACE again to transmit. Ctrl+C signs off.
+
+If the app hears the wrong microphone, set `MAD_ATC_INPUT_DEVICE` to a SoundDevice input index, for example `MAD_ATC_INPUT_DEVICE=18`.
 
 ## Layout
 

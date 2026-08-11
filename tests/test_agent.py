@@ -124,6 +124,21 @@ async def test_transcribe_returns_text_from_the_final_transcript_event(agent):
     fake_stream.aclose.assert_awaited_once()
 
 
+async def test_transcribe_resamples_device_rate_audio_to_livekit_stt_rate(agent):
+    fake_stream = _FakeSpeechStream([_final_transcript_event('tower delta alpha delta request clearance')])
+    fake_stt = MagicMock()
+    fake_stt.stream = MagicMock(return_value=fake_stream)
+    agent.stt = fake_stt
+    pcm_44100 = (b'\x10\x00' * 4_410)
+
+    transcript = await agent.transcribe(pcm_44100, sample_rate=44_100)
+
+    assert transcript == 'tower delta alpha delta request clearance'
+    pushed_rates = [call.args[0].sample_rate for call in fake_stream.push_frame.call_args_list]
+    assert pushed_rates
+    assert set(pushed_rates) == {16_000}
+
+
 async def test_transcribe_returns_empty_string_when_no_final_transcript_arrives(agent):
     fake_stream = _FakeSpeechStream([])  # stream ends with no events (e.g. silence)
     fake_stt = MagicMock()
