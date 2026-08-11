@@ -60,9 +60,20 @@
   cursor: pointer;
 }
 
+.talk-button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .talk-button:focus-visible {
   outline: 4px solid rgba(255, 209, 102, 0.45);
   outline-offset: 4px;
+}
+
+.status-line {
+  margin: 16px 0 0;
+  color: #ffdca8;
+  font-weight: 700;
 }
 
 .response-card {
@@ -86,6 +97,13 @@
   color: #f7fbff;
   font-size: 1.15rem;
   line-height: 1.5;
+}
+
+.response-meta {
+  margin: 0 0 12px;
+  color: #c9d4e5;
+  font-size: 0.95rem;
+  line-height: 1.4;
 }
 
 audio {

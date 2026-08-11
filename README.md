@@ -46,12 +46,18 @@ If the app hears the wrong microphone, set `MAD_ATC_INPUT_DEVICE` to a SoundDevi
 Web UI (replaces the `terminal/` TUI):
 
 ```bash
+uv run mad-atc-web
+```
+
+In another terminal:
+
+```bash
 cd ui
 npm install
 npm start
 ```
 
-Opens at [http://localhost:3000](http://localhost:3000). The UI now renders the MAD ATC push-to-talk screen with a sample ATC audio response; Python backend wiring is still pending.
+Opens at [http://localhost:3000](http://localhost:3000). The UI records browser microphone PCM, posts it to `http://localhost:8000/api/voice-turn`, and plays the fresh ATC WAV returned for that turn.
 
 ## Layout
 
@@ -60,5 +66,6 @@ Opens at [http://localhost:3000](http://localhost:3000). The UI now renders the 
 - `src/agent/config/agents.yaml` — role/goal/backstory, auto-loaded by crewai's `@CrewBase`
 - `src/agent/skills/mad-atc/SKILL.md` — persona reference doc (temper, profession, strict rules)
 - `main.py` — live voice terminal: mic in → transcript → roast → angry voice out
+- `src/web.py` — ASGI HTTP API for the React UI (`/api/voice-turn`: browser PCM -> transcript -> roast -> fresh WAV)
 - `ui/` — React web frontend (Create React App), replacing the `terminal/` TUI which is not working as expected
 - `terminal/` — bun/pi-tui TUI client (legacy, being replaced by `ui/`)
