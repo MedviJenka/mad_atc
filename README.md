@@ -43,6 +43,16 @@ Press SPACE to key the mic, speak, then press SPACE again to transmit. Ctrl+C si
 
 If the app hears the wrong microphone, set `MAD_ATC_INPUT_DEVICE` to a SoundDevice input index, for example `MAD_ATC_INPUT_DEVICE=18`.
 
+Web UI (replaces the `terminal/` TUI):
+
+```bash
+cd ui
+npm install
+npm start
+```
+
+Opens at [http://localhost:3000](http://localhost:3000). The UI now renders the MAD ATC push-to-talk screen with a sample ATC audio response; Python backend wiring is still pending.
+
 ## Layout
 
 - `src/settings.py` — env-driven config (`Config`): OpenAI model, LiveKit TTS/STT models + TTS emotion
@@ -50,3 +60,5 @@ If the app hears the wrong microphone, set `MAD_ATC_INPUT_DEVICE` to a SoundDevi
 - `src/agent/config/agents.yaml` — role/goal/backstory, auto-loaded by crewai's `@CrewBase`
 - `src/agent/skills/mad-atc/SKILL.md` — persona reference doc (temper, profession, strict rules)
 - `main.py` — live voice terminal: mic in → transcript → roast → angry voice out
+- `ui/` — React web frontend (Create React App), replacing the `terminal/` TUI which is not working as expected
+- `terminal/` — bun/pi-tui TUI client (legacy, being replaced by `ui/`)

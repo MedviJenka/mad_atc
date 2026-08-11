@@ -10,7 +10,10 @@ wheels/
 .venv
 .env
 terminal/node_modules
+ui/node_modules
+ui/build
 # Generated voice output
 roast.wav
 roast.mp3
 terminal/recordings/
+ui/node_modules
