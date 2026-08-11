@@ -5,25 +5,28 @@ import json
 import sys
 import wave
 import asyncio
+from collections.abc import Callable
 import numpy as np
 import sounddevice as sd
 from livekit.agents.utils import http_context
 
-from mad_atc.agent.main import MadAtcAgent
-from mad_atc.logging import configure_cli_logging
+from src.agent.main import MadAtcAgent
+from src.cli_output import create_cli_logger, labeled_line, log_colored
 
 SAMPLE_RATE = 16_000
 MIN_AUDIO_BYTES = 3_200  # ~0.1s at 16kHz/16-bit mono; anything under this is silence
 
 
-def record_until_enter() -> bytes:
-    """Record mono mic audio until the user presses ENTER again; return raw PCM16 bytes."""
+def record_until_enter(on_ready: Callable[[], None] | None = None) -> bytes:
+    """Record mono mic audio after the input stream is open until ENTER is received."""
     frames: list[np.ndarray] = []
 
     def callback(indata, _frame_count, _time_info, _status) -> None:
         frames.append(indata.copy())
 
     with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16', callback=callback):
+        if on_ready is not None:
+            on_ready()
         input()
 
     audio = np.concatenate(frames, axis=0) if frames else np.zeros((0, 1), dtype='int16')
@@ -43,33 +46,32 @@ async def run_once() -> int:
     agent = MadAtcAgent()
     async with http_context.open() as http_session:
         agent.bind_http_session(http_session)
-        logger = configure_cli_logging()
-        logger.info('🎙️  recording... release ENTER to transmit')
-        pcm_bytes = record_until_enter()
+        logger = create_cli_logger()
+        pcm_bytes = record_until_enter(lambda: logger.info('🎙️  recording... release ENTER to transmit', color='bold cyan'))
         if len(pcm_bytes) < MIN_AUDIO_BYTES:
-            logger.info('(nothing heard, try again)')
+            logger.info('(nothing heard, try again)', color='yellow')
             return 2
 
         try:
             transcript = await agent.transcribe(pcm_bytes, sample_rate=SAMPLE_RATE)
         except Exception as exc:
-            logger.info('(could not transcribe that, try again — %s)', exc)
+            logger.info(f'(could not transcribe that, try again — {exc})', color='red')
             return 3
         if not transcript.strip():
-            logger.info('(nothing heard, try again)')
+            logger.info('(nothing heard, try again)', color='yellow')
             return 2
 
-        logger.info('you:   %s', transcript)
+        log_colored(logger, 'you:   ', transcript, 'bold green')
         roast = await agent.roast(transcript)
-        logger.info('tower: %s', roast)
+        log_colored(logger, 'tower: ', roast, 'bold magenta')
         play(await agent.synthesize(roast))
-        logger.info('result -> %s', json.dumps({"transcript": transcript, "roast": roast}))
+        logger.info(labeled_line('result -> ', json.dumps({"transcript": transcript, "roast": roast})))
         return 0
 
 async def run() -> None:
-    logger = configure_cli_logging()
+    logger = create_cli_logger()
     agent = MadAtcAgent()
-    logger.info('MAD ATC — frequency open.')
+    logger.info('MAD ATC — frequency open.', color='bold cyan')
     logger.info('Press ENTER to key the mic, speak, press ENTER again to transmit. Ctrl+C to sign off.\n')
 
     async with http_context.open() as http_session:
@@ -81,24 +83,23 @@ async def run() -> None:
                 logger.info('\ntower out.')
                 break
 
-            logger.info('🎙️  recording... press ENTER to stop')
-            pcm_bytes = record_until_enter()
+            pcm_bytes = record_until_enter(lambda: logger.info('🎙️  recording... press ENTER to stop', color='bold cyan'))
             if len(pcm_bytes) < MIN_AUDIO_BYTES:
-                logger.info('(nothing heard, try again)\n')
+                logger.info('(nothing heard, try again)\n', color='yellow')
                 continue
 
             try:
                 transcript = await agent.transcribe(pcm_bytes, sample_rate=SAMPLE_RATE)
             except Exception as exc:
-                logger.info('(could not transcribe that, try again — %s)\n', exc)
+                logger.info(f'(could not transcribe that, try again — {exc})\n', color='red')
                 continue
             if not transcript.strip():
-                logger.info('(nothing heard, try again)\n')
+                logger.info('(nothing heard, try again)\n', color='yellow')
                 continue
-            logger.info('you:   %s', transcript)
+            log_colored(logger, 'you:   ', transcript, 'bold green')
 
             roast = await agent.roast(transcript)
-            logger.info('tower: %s', roast)
+            log_colored(logger, 'tower: ', roast, 'bold magenta')
 
             play(await agent.synthesize(roast))
             logger.info('')

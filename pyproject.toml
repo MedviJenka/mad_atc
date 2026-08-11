@@ -13,16 +13,19 @@ dependencies = [
     "pyyaml>=6.0.3",
     "sounddevice>=0.5.5",
     "livekit-agents>=1.6.9",
-    "pytest>=9.1.1",
-    "pytest-async>=0.1.1",
+    "structlog>=25.5.0",
 ]
 
 [project.scripts]
-mad-atc = "mad_atc:main"
+mad-atc = "src:main"
 
 [build-system]
 requires = ["uv_build>=0.12.3,<0.13.0"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "src"
+module-root = ""
 
 [dependency-groups]
 dev = [

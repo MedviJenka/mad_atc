@@ -3,17 +3,31 @@ import wave
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
+import subprocess
+import sys
 
 import pytest
 
 from livekit.agents import stt as lk_stt
-from mad_atc.agent.main import MadAtcAgent
-from mad_atc.settings import Config
+from src.agent.main import MadAtcAgent
+from src.settings import Config
 
 
 @pytest.fixture
 def agent():
     return MadAtcAgent()
+
+
+def test_agent_module_can_be_run_directly_from_project_root():
+    result = subprocess.run(
+        [sys.executable, 'src/agent/main.py'],
+        cwd=Path(__file__).resolve().parent.parent,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 class _FakeAudioFrame:

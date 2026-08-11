@@ -1,5 +1,5 @@
-from mad_atc.config import AgentConfig
-from mad_atc.settings import Config
+from src.config import AgentConfig
+from src.settings import Config
 
 
 def test_llm_is_configured_from_settings():

@@ -11,4 +11,6 @@ wheels/
 .env
 terminal/node_modules
 # Generated voice output
+roast.wav
 roast.mp3
+terminal/recordings/

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from functools import cached_property
 from crewai import LLM
-from mad_atc.settings import Config
+from .settings import Config
 
 
 @dataclass
