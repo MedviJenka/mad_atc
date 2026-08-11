@@ -28,7 +28,14 @@ class MadAtcAgent(AgentConfig):
 
     @cached_property
     def tts(self) -> inference.TTS:
-        return inference.TTS(model=Config.LIVEKIT_TTS_MODEL, extra_kwargs={'emotion': Config.LIVEKIT_TTS_EMOTION})
+        return inference.TTS(
+            model=Config.LIVEKIT_TTS_MODEL,
+            extra_kwargs={
+                'emotion': Config.LIVEKIT_TTS_EMOTION,
+                'volume': Config.LIVEKIT_TTS_VOLUME,
+                'speed': Config.LIVEKIT_TTS_SPEED,
+            },
+        )
 
     @cached_property
     def stt(self) -> inference.STT: return inference.STT(model=Config.LIVEKIT_STT_MODEL)

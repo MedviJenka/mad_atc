@@ -12,9 +12,11 @@ class Settings(BaseSettings):
     VERBOSE:             bool = Field(default=True)
     LIVEKIT_API_KEY:     str  = Field(...)  # https://docs.livekit.io/agents/models/inference/
     LIVEKIT_API_SECRET:  str  = Field(...)
-    LIVEKIT_TTS_MODEL:   str  = Field(default='cartesia/sonic-2')
-    LIVEKIT_TTS_EMOTION: str  = Field(default='angry')
-    LIVEKIT_STT_MODEL:   str  = Field(default='deepgram/nova-3')
+    LIVEKIT_TTS_MODEL:   str   = Field(default='cartesia/sonic-2')
+    LIVEKIT_TTS_EMOTION: str   = Field(default='angry')
+    LIVEKIT_TTS_VOLUME:  float = Field(default=2.0)  # 2.0 is the gateway's max
+    LIVEKIT_TTS_SPEED:   str   = Field(default='fast')
+    LIVEKIT_STT_MODEL:   str   = Field(default='deepgram/nova-3')
 
 
 @lru_cache

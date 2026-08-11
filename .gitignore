@@ -9,6 +9,6 @@ wheels/
 # Virtual environments
 .venv
 .env
-
+terminal/node_modules
 # Generated voice output
 roast.mp3
