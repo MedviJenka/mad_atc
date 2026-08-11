@@ -120,7 +120,6 @@ function App() {
       setPhase('error');
     }
   }
-
   return (
     <main className="App">
       <section className="radio-panel" aria-labelledby="radio-title">
@@ -204,5 +203,4 @@ function formatRequestError(error) {
   }
   return error instanceof Error ? error.message : String(error);
 }
-
 export default App;

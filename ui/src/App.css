@@ -64,7 +64,6 @@
   cursor: wait;
   opacity: 0.72;
 }
-
 .talk-button:focus-visible {
   outline: 4px solid rgba(255, 209, 102, 0.45);
   outline-offset: 4px;
@@ -75,7 +74,6 @@
   color: #ffdca8;
   font-weight: 700;
 }
-
 .response-card {
   margin-top: 36px;
   padding: 24px;
@@ -105,7 +103,6 @@
   font-size: 0.95rem;
   line-height: 1.4;
 }
-
 audio {
   width: 100%;
 }
