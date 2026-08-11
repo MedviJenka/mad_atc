@@ -10,6 +10,7 @@ import sounddevice as sd
 from livekit.agents.utils import http_context
 
 from mad_atc.agent.main import MadAtcAgent
+from mad_atc.logging import configure_cli_logging
 
 SAMPLE_RATE = 16_000
 MIN_AUDIO_BYTES = 3_200  # ~0.1s at 16kHz/16-bit mono; anything under this is silence
@@ -40,64 +41,67 @@ def play(wav_bytes: bytes) -> None:
 async def run_once() -> int:
     """Record one push-to-talk turn, answer it, play the voice, and exit."""
     agent = MadAtcAgent()
-    async with http_context.open():
-        print('🎙️  recording... release ENTER to transmit', flush=True)
+    async with http_context.open() as http_session:
+        agent.bind_http_session(http_session)
+        logger = configure_cli_logging()
+        logger.info('🎙️  recording... release ENTER to transmit')
         pcm_bytes = record_until_enter()
         if len(pcm_bytes) < MIN_AUDIO_BYTES:
-            print('(nothing heard, try again)', flush=True)
+            logger.info('(nothing heard, try again)')
             return 2
 
         try:
             transcript = await agent.transcribe(pcm_bytes, sample_rate=SAMPLE_RATE)
         except Exception as exc:
-            print(f'(could not transcribe that, try again — {exc})', flush=True)
+            logger.info('(could not transcribe that, try again — %s)', exc)
             return 3
         if not transcript.strip():
-            print('(nothing heard, try again)', flush=True)
+            logger.info('(nothing heard, try again)')
             return 2
 
-        print(f'you:   {transcript}', flush=True)
+        logger.info('you:   %s', transcript)
         roast = await agent.roast(transcript)
-        print(f'tower: {roast}', flush=True)
+        logger.info('tower: %s', roast)
         play(await agent.synthesize(roast))
-        print(f'result -> {json.dumps({"transcript": transcript, "roast": roast})}', flush=True)
+        logger.info('result -> %s', json.dumps({"transcript": transcript, "roast": roast}))
         return 0
 
-
 async def run() -> None:
+    logger = configure_cli_logging()
     agent = MadAtcAgent()
-    print('MAD ATC — frequency open.')
-    print('Press ENTER to key the mic, speak, press ENTER again to transmit. Ctrl+C to sign off.\n')
+    logger.info('MAD ATC — frequency open.')
+    logger.info('Press ENTER to key the mic, speak, press ENTER again to transmit. Ctrl+C to sign off.\n')
 
-    async with http_context.open():
+    async with http_context.open() as http_session:
+        agent.bind_http_session(http_session)
         while True:
             try:
                 input('[ready] press ENTER to transmit > ')
             except (EOFError, KeyboardInterrupt):
-                print('\ntower out.')
+                logger.info('\ntower out.')
                 break
 
-            print('🎙️  recording... press ENTER to stop')
+            logger.info('🎙️  recording... press ENTER to stop')
             pcm_bytes = record_until_enter()
             if len(pcm_bytes) < MIN_AUDIO_BYTES:
-                print('(nothing heard, try again)\n')
+                logger.info('(nothing heard, try again)\n')
                 continue
 
             try:
                 transcript = await agent.transcribe(pcm_bytes, sample_rate=SAMPLE_RATE)
             except Exception as exc:
-                print(f'(could not transcribe that, try again — {exc})\n')
+                logger.info('(could not transcribe that, try again — %s)\n', exc)
                 continue
             if not transcript.strip():
-                print('(nothing heard, try again)\n')
+                logger.info('(nothing heard, try again)\n')
                 continue
-            print(f'you:   {transcript}')
+            logger.info('you:   %s', transcript)
 
             roast = await agent.roast(transcript)
-            print(f'tower: {roast}')
+            logger.info('tower: %s', roast)
 
             play(await agent.synthesize(roast))
-            print()
+            logger.info('')
 
 
 def main() -> None:

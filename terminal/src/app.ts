@@ -51,6 +51,7 @@ export class MadAtcTerminal implements Component, Focusable {
 	#status = "ready";
 	#busy = false;
 	#voiceSession?: VoiceTurnSession;
+	#voiceRecorderReady = false;
 	#pushToTalkReleaseTimer?: NodeJS.Timeout;
 	#pushToTalkReleaseMs: number;
 	#awakeTimer?: NodeJS.Timeout;
@@ -205,7 +206,9 @@ export class MadAtcTerminal implements Component, Focusable {
 
 	#handlePushToTalkEnter(): void {
 		if (this.#voiceSession) {
-			this.#armPushToTalkRelease();
+			if (this.#voiceRecorderReady) {
+				this.#armPushToTalkRelease();
+			}
 			return;
 		}
 		if (this.#busy) {
@@ -214,11 +217,19 @@ export class MadAtcTerminal implements Component, Focusable {
 
 		this.#busy = true;
 		this.#voicePhase = "recording";
-		this.#voiceSession = this.#client.startVoiceTurn();
-		this.#append("system", "mic keyed — keep holding ENTER; release to transmit");
-		this.#setStatus("recording — hold ENTER, release to transmit");
+		const session = this.#client.startVoiceTurn();
+		this.#voiceSession = session;
+		this.#voiceRecorderReady = false;
+		this.#append("system", "mic keyed — starting recorder; keep holding ENTER");
+		this.#setStatus("starting recorder — hold ENTER");
 		this.#startAwakeAnimation();
-		this.#armPushToTalkRelease();
+		void (session.ready ?? Promise.resolve()).then(() => {
+			if (this.#voiceSession !== session || this.#voicePhase !== "recording") return;
+			this.#voiceRecorderReady = true;
+			this.#append("system", "recorder live — release ENTER to transmit");
+			this.#setStatus("recording — hold ENTER, release to transmit");
+			this.#armPushToTalkRelease();
+		});
 	}
 
 	#armPushToTalkRelease(): void {
@@ -234,6 +245,7 @@ export class MadAtcTerminal implements Component, Focusable {
 		if (!session) return;
 
 		this.#voiceSession = undefined;
+		this.#voiceRecorderReady = false;
 		this.#voicePhase = "processing";
 		this.#setStatus("transmitting — ATC transcribing, roasting, and speaking...");
 		try {

@@ -38,6 +38,41 @@ describe("MadAtcTerminal", () => {
 		expect(uiCalls).not.toContain("start");
 	});
 
+	test("does not release push-to-talk before the recorder is ready", async () => {
+		const ready = Promise.withResolvers<void>();
+		const stopped = Promise.withResolvers<void>();
+		let stopCalls = 0;
+		const app = new MadAtcTerminal({
+			pushToTalkReleaseMs: 1,
+			client: {
+				sendText: async () => {
+					throw new Error("sendText should not be called during push-to-talk");
+				},
+				startVoiceTurn: () => ({
+					ready: ready.promise,
+					stop: async () => {
+						stopCalls += 1;
+						stopped.resolve();
+						return { transcript: "ready guarded", roast: "recorded after warmup", stdout: "", stderr: "", exitCode: 0 };
+					},
+				}),
+			},
+		});
+		app.attach({
+			stop: () => undefined,
+			start: () => undefined,
+			requestRender: () => undefined,
+		});
+
+		app.handleInput("\n");
+		await Bun.sleep(10);
+		expect(stopCalls).toBe(0);
+
+		ready.resolve();
+		await stopped.promise;
+		expect(stopCalls).toBe(1);
+	});
+
 	test("keeps repeated Enter key auto-repeat inside one push-to-talk turn", async () => {
 		const stopped = Promise.withResolvers<void>();
 		let recorderRuns = 0;

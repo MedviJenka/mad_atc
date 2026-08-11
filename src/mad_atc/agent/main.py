@@ -22,6 +22,12 @@ class MadAtcAgent(AgentConfig):
     @agent
     def mad_atc(self) -> Agent: return Agent(config=self.agents_config['mad_atc'], llm=self.llm, verbose=Config.VERBOSE)
 
+    def bind_http_session(self, http_session) -> 'MadAtcAgent':
+        self.http_session = http_session
+        self.__dict__.pop('tts', None)
+        self.__dict__.pop('stt', None)
+        return self
+
     async def roast(self, prompt: str) -> str:
         response = await self.mad_atc().akickoff(messages=prompt)
         return response.raw
@@ -30,6 +36,7 @@ class MadAtcAgent(AgentConfig):
     def tts(self) -> inference.TTS:
         return inference.TTS(
             model=Config.LIVEKIT_TTS_MODEL,
+            http_session=getattr(self, 'http_session', None),
             extra_kwargs={
                 'emotion': Config.LIVEKIT_TTS_EMOTION,
                 'volume': Config.LIVEKIT_TTS_VOLUME,
@@ -38,7 +45,7 @@ class MadAtcAgent(AgentConfig):
         )
 
     @cached_property
-    def stt(self) -> inference.STT: return inference.STT(model=Config.LIVEKIT_STT_MODEL)
+    def stt(self) -> inference.STT: return inference.STT(model=Config.LIVEKIT_STT_MODEL, http_session=getattr(self, 'http_session', None))
 
     async def synthesize(self, text: str) -> bytes:
         """Text -> WAV audio bytes, spoken in the angry ATC voice (LiveKit Inference / Cartesia)."""

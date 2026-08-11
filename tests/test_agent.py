@@ -70,6 +70,15 @@ def test_stt_is_configured_from_settings(agent):
     assert agent.stt.model == Config.LIVEKIT_STT_MODEL
 
 
+def test_bind_http_session_passes_session_to_livekit_clients(agent):
+    fake_session = object()
+
+    agent.bind_http_session(fake_session)
+
+    assert agent.stt._session is fake_session
+    assert agent.tts._session is fake_session
+
+
 async def test_synthesize_wraps_the_gateways_audio_frame_as_wav(agent):
     fake_stream = MagicMock()
     fake_stream.collect = AsyncMock(return_value=_FakeAudioFrame(b'\x01\x00\x02\x00', sample_rate=24_000))

@@ -16,6 +16,7 @@ export type VoiceTurnResult = {
 };
 
 export type VoiceTurnSession = {
+	ready?: Promise<void>;
 	stop(): Promise<VoiceTurnResult>;
 };
 
@@ -80,6 +81,8 @@ export function parseVoiceTurnOutput(stdout: string): Pick<VoiceTurnResult, "tra
 	}
 	return { transcript: parsed.transcript, roast: parsed.roast };
 }
+
+const VOICE_TURN_READY_MARKER = "🎙️  recording";
 
 export function buildRecordingName(date: Date = new Date()): string {
 	return `atc-${date.toISOString().replaceAll(":", "-").replaceAll(".", "-")}.wav`;
@@ -167,9 +170,27 @@ function runVoiceTurnCommandWithBun(command: string[], options: { cwd: string; e
 		stdout: "pipe",
 		stderr: "pipe",
 	});
+	const ready = Promise.withResolvers<void>();
+	let readyResolved = false;
+	let stdoutSoFar = "";
+	const markReady = (): void => {
+		if (readyResolved) return;
+		readyResolved = true;
+		ready.resolve();
+	};
+	const stdoutText = readTextStream(proc.stdout, chunk => {
+		stdoutSoFar += chunk;
+		if (stdoutSoFar.includes(VOICE_TURN_READY_MARKER)) {
+			markReady();
+		}
+	});
+	const stderrText = readTextStream(proc.stderr);
+	void proc.exited.then(markReady, markReady);
 	let stopped = false;
 	return {
+		ready: ready.promise,
 		async stop(): Promise<VoiceTurnResult> {
+			await ready.promise;
 			if (!stopped) {
 				stopped = true;
 				try {
@@ -180,15 +201,38 @@ function runVoiceTurnCommandWithBun(command: string[], options: { cwd: string; e
 				}
 			}
 			const [stdout, stderr, exitCode] = await Promise.all([
-				new Response(proc.stdout).text(),
-				new Response(proc.stderr).text(),
+				stdoutText,
+				stderrText,
 				proc.exited,
 			]);
 			if (exitCode !== 0) {
-				throw new Error(stderr.trim() || stdout.trim() || `mad-atc voice turn exited with ${exitCode}`);
+				throw new Error(formatVoiceTurnError(stdout, stderr, exitCode));
 			}
 			const parsed = parseVoiceTurnOutput(stdout);
 			return { ...parsed, stdout, stderr, exitCode };
 		},
 	};
+}
+
+async function readTextStream(stream: ReadableStream<Uint8Array>, onChunk?: (chunk: string) => void): Promise<string> {
+	const reader = stream.pipeThrough(new TextDecoderStream()).getReader();
+	let text = "";
+	for (;;) {
+		const { value, done } = await reader.read();
+		if (done) {
+			return text;
+		}
+		text += value;
+		onChunk?.(value);
+	}
+}
+
+function formatVoiceTurnError(stdout: string, stderr: string, exitCode: number): string {
+	const lines = `${stderr}\n${stdout}`
+		.replace(/\r\n/g, "\n")
+		.split("\n")
+		.map(line => line.trim())
+		.filter(Boolean);
+	const actionable = lines.findLast(line => line.includes("nothing heard") || line.includes("could not transcribe"));
+	return actionable ?? lines.at(-1) ?? `mad-atc voice turn exited with ${exitCode}`;
 }

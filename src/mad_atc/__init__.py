@@ -4,14 +4,17 @@ import sys
 from livekit.agents.utils import http_context
 
 from mad_atc.agent.main import MadAtcAgent
+from mad_atc.logging import configure_cli_logging
 
 
 async def _run(prompt: str) -> None:
+    logger = configure_cli_logging()
     agent = MadAtcAgent()
-    async with http_context.open():
+    async with http_context.open() as http_session:
+        agent.bind_http_session(http_session)
         roast = await agent.roast(prompt)
-        print(roast)
-        print('voice ->', await agent.speak(roast))
+        logger.info('%s', roast)
+        logger.info('voice -> %s', await agent.speak(roast))
 
 
 def main() -> None:

@@ -81,6 +81,7 @@ async def test_run_once_records_transcribes_roasts_and_speaks(monkeypatch, capsy
     class FakeHttpSession:
         async def __aenter__(self):
             context_events.append('enter')
+            return self
 
         async def __aexit__(self, *_exc):
             context_events.append('exit')
@@ -91,6 +92,11 @@ async def test_run_once_records_transcribes_roasts_and_speaks(monkeypatch, capsy
             return FakeHttpSession()
 
     class FakeAgent:
+        def bind_http_session(self, http_session):
+            assert context_events == ['enter']
+            assert http_session is not None
+            return self
+
         async def transcribe(self, pcm_bytes, sample_rate):
             assert context_events == ['enter']
             assert pcm_bytes == b'1' * mad_atc_main.MIN_AUDIO_BYTES
