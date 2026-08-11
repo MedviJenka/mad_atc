@@ -39,7 +39,7 @@ Live voice terminal — speak to it with your mic, hear it roast you back:
 uv run python main.py
 ```
 
-Press ENTER to key the mic, speak, press ENTER again to transmit. Ctrl+C to sign off.
+Hold ENTER to key the mic from the Oh My Pi terminal UI; release ENTER to transmit. Ctrl+C signs off.
 
 ## Layout
 

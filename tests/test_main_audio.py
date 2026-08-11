@@ -73,3 +73,50 @@ def test_play_sends_decoded_samples_and_framerate_to_sounddevice(monkeypatch):
     assert played_rate == 16_000
     assert list(played_data.flatten()) == [10, 20, 30]
     fake_wait.assert_called_once()
+
+
+async def test_run_once_records_transcribes_roasts_and_speaks(monkeypatch, capsys):
+    context_events = []
+
+    class FakeHttpSession:
+        async def __aenter__(self):
+            context_events.append('enter')
+
+        async def __aexit__(self, *_exc):
+            context_events.append('exit')
+
+    class FakeHttpContext:
+        @staticmethod
+        def open():
+            return FakeHttpSession()
+
+    class FakeAgent:
+        async def transcribe(self, pcm_bytes, sample_rate):
+            assert context_events == ['enter']
+            assert pcm_bytes == b'1' * mad_atc_main.MIN_AUDIO_BYTES
+            assert sample_rate == mad_atc_main.SAMPLE_RATE
+            return 'tower request takeoff'
+
+        async def roast(self, transcript):
+            assert transcript == 'tower request takeoff'
+            return 'hold short'
+
+        async def synthesize(self, roast):
+            assert roast == 'hold short'
+            return b'wav'
+
+    fake_play = MagicMock()
+    monkeypatch.setattr(mad_atc_main, 'MadAtcAgent', FakeAgent)
+    monkeypatch.setattr(mad_atc_main, 'http_context', FakeHttpContext)
+    monkeypatch.setattr(mad_atc_main, 'record_until_enter', lambda: b'1' * mad_atc_main.MIN_AUDIO_BYTES)
+    monkeypatch.setattr(mad_atc_main, 'play', fake_play)
+
+    exit_code = await mad_atc_main.run_once()
+
+    out = capsys.readouterr().out
+    assert exit_code == 0
+    assert 'you:   tower request takeoff' in out
+    assert 'tower: hold short' in out
+    assert 'result -> {"transcript": "tower request takeoff", "roast": "hold short"}' in out
+    fake_play.assert_called_once_with(b'wav')
+    assert context_events == ['enter', 'exit']

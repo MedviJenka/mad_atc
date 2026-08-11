@@ -1,5 +1,7 @@
 """Live voice terminal: key the mic, get roasted back by the mad ATC in real time."""
+import argparse
 import io
+import json
 import sys
 import wave
 import asyncio
@@ -33,6 +35,33 @@ def play(wav_bytes: bytes) -> None:
         data = data.reshape(-1, wav_file.getnchannels())
         sd.play(data, wav_file.getframerate())
         sd.wait()
+
+
+async def run_once() -> int:
+    """Record one push-to-talk turn, answer it, play the voice, and exit."""
+    agent = MadAtcAgent()
+    async with http_context.open():
+        print('🎙️  recording... release ENTER to transmit', flush=True)
+        pcm_bytes = record_until_enter()
+        if len(pcm_bytes) < MIN_AUDIO_BYTES:
+            print('(nothing heard, try again)', flush=True)
+            return 2
+
+        try:
+            transcript = await agent.transcribe(pcm_bytes, sample_rate=SAMPLE_RATE)
+        except Exception as exc:
+            print(f'(could not transcribe that, try again — {exc})', flush=True)
+            return 3
+        if not transcript.strip():
+            print('(nothing heard, try again)', flush=True)
+            return 2
+
+        print(f'you:   {transcript}', flush=True)
+        roast = await agent.roast(transcript)
+        print(f'tower: {roast}', flush=True)
+        play(await agent.synthesize(roast))
+        print(f'result -> {json.dumps({"transcript": transcript, "roast": roast})}', flush=True)
+        return 0
 
 
 async def run() -> None:
@@ -72,8 +101,13 @@ async def run() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--once', action='store_true', help='record one stdin-controlled push-to-talk turn and exit')
+    args = parser.parse_args()
     sys.stdout.reconfigure(encoding='utf-8')
     sys.stderr.reconfigure(encoding='utf-8')
+    if args.once:
+        raise SystemExit(asyncio.run(run_once()))
     asyncio.run(run())
 
 

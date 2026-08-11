@@ -7,8 +7,20 @@ export type CommandResult = {
 	exitCode: number;
 };
 
+export type VoiceTurnResult = {
+	transcript: string;
+	roast: string;
+	stdout: string;
+	stderr: string;
+	exitCode: number;
+};
+
+export type VoiceTurnSession = {
+	stop(): Promise<VoiceTurnResult>;
+};
+
 export type RunCommand = (command: string[], options: { cwd: string; env?: Record<string, string> }) => Promise<CommandResult>;
-export type RunLiveCommand = (command: string[], options: { cwd: string; env?: Record<string, string> }) => Promise<number>;
+export type RunVoiceTurnCommand = (command: string[], options: { cwd: string; env?: Record<string, string> }) => VoiceTurnSession;
 
 
 export type ParsedAtcOutput = {
@@ -28,7 +40,7 @@ export type MadAtcClientOptions = {
 	terminalRoot?: string;
 	now?: () => Date;
 	runCommand?: RunCommand;
-	runLiveCommand?: RunLiveCommand;
+	runVoiceTurnCommand?: RunVoiceTurnCommand;
 };
 
 const DEFAULT_PROJECT_ROOT = resolve(import.meta.dir, "..", "..");
@@ -54,6 +66,21 @@ export function parseAtcOutput(stdout: string): ParsedAtcOutput {
 	};
 }
 
+export function parseVoiceTurnOutput(stdout: string): Pick<VoiceTurnResult, "transcript" | "roast"> {
+	const marker = stdout
+		.replace(/\r\n/g, "\n")
+		.split("\n")
+		.find(line => line.startsWith("result -> "));
+	if (!marker) {
+		throw new Error("voice turn completed without a result marker");
+	}
+	const parsed = JSON.parse(marker.slice("result -> ".length)) as { transcript?: unknown; roast?: unknown };
+	if (typeof parsed.transcript !== "string" || typeof parsed.roast !== "string") {
+		throw new Error("voice turn result marker is missing transcript or roast");
+	}
+	return { transcript: parsed.transcript, roast: parsed.roast };
+}
+
 export function buildRecordingName(date: Date = new Date()): string {
 	return `atc-${date.toISOString().replaceAll(":", "-").replaceAll(".", "-")}.wav`;
 }
@@ -63,14 +90,14 @@ export class MadAtcClient {
 	readonly terminalRoot: string;
 	#now: () => Date;
 	#runCommand: RunCommand;
-	#runLiveCommand: RunLiveCommand;
+	#runVoiceTurnCommand: RunVoiceTurnCommand;
 
 	constructor(options: MadAtcClientOptions = {}) {
 		this.projectRoot = resolve(options.projectRoot ?? DEFAULT_PROJECT_ROOT);
 		this.terminalRoot = resolve(options.terminalRoot ?? DEFAULT_TERMINAL_ROOT);
 		this.#now = options.now ?? (() => new Date());
 		this.#runCommand = options.runCommand ?? runCommandWithBun;
-		this.#runLiveCommand = options.runLiveCommand ?? runLiveCommandWithInheritedTerminal;
+		this.#runVoiceTurnCommand = options.runVoiceTurnCommand ?? runVoiceTurnCommandWithBun;
 	}
 
 	async sendText(prompt: string): Promise<AtcRunResult> {
@@ -101,8 +128,8 @@ export class MadAtcClient {
 		};
 	}
 
-	async runLiveRecorder(): Promise<number> {
-		return await this.#runLiveCommand(["uv", "run", "python", "main.py"], {
+	startVoiceTurn(): VoiceTurnSession {
+		return this.#runVoiceTurnCommand(["uv", "run", "python", "main.py", "--once"], {
 			cwd: this.projectRoot,
 			env: { VERBOSE: "false" },
 		});
@@ -132,13 +159,36 @@ async function runCommandWithBun(command: string[], options: { cwd: string; env?
 	return { stdout, stderr, exitCode };
 }
 
-async function runLiveCommandWithInheritedTerminal(command: string[], options: { cwd: string; env?: Record<string, string> }): Promise<number> {
+function runVoiceTurnCommandWithBun(command: string[], options: { cwd: string; env?: Record<string, string> }): VoiceTurnSession {
 	const proc = Bun.spawn(command, {
 		cwd: options.cwd,
 		env: { ...Bun.env, ...options.env },
-		stdin: "inherit",
-		stdout: "inherit",
-		stderr: "inherit",
+		stdin: "pipe",
+		stdout: "pipe",
+		stderr: "pipe",
 	});
-	return await proc.exited;
+	let stopped = false;
+	return {
+		async stop(): Promise<VoiceTurnResult> {
+			if (!stopped) {
+				stopped = true;
+				try {
+					proc.stdin.write("\n");
+					proc.stdin.end();
+				} catch {
+					// Process may have already exited; the exit code/stdout below is authoritative.
+				}
+			}
+			const [stdout, stderr, exitCode] = await Promise.all([
+				new Response(proc.stdout).text(),
+				new Response(proc.stderr).text(),
+				proc.exited,
+			]);
+			if (exitCode !== 0) {
+				throw new Error(stderr.trim() || stdout.trim() || `mad-atc voice turn exited with ${exitCode}`);
+			}
+			const parsed = parseVoiceTurnOutput(stdout);
+			return { ...parsed, stdout, stderr, exitCode };
+		},
+	};
 }
