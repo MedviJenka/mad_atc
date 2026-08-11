@@ -7,12 +7,14 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file='.env', extra='allow')
 
-    OPENAI_API_KEY: str  = Field(...)
-    OPENAI_MODEL:   str  = Field(default='openai/gpt-5.5')
-    VERBOSE:        bool = Field(default=True)
-
-    TTS_MODEL: str = Field(default='gpt-4o-mini-tts')
-    TTS_VOICE: str = Field(default='onyx')
+    OPENAI_API_KEY:      str  = Field(...)
+    OPENAI_MODEL:        str  = Field(default='openai/gpt-5.5')
+    VERBOSE:             bool = Field(default=True)
+    LIVEKIT_API_KEY:     str  = Field(...)  # https://docs.livekit.io/agents/models/inference/
+    LIVEKIT_API_SECRET:  str  = Field(...)
+    LIVEKIT_TTS_MODEL:   str  = Field(default='cartesia/sonic-2')
+    LIVEKIT_TTS_EMOTION: str  = Field(default='angry')
+    LIVEKIT_STT_MODEL:   str  = Field(default='deepgram/nova-3')
 
 
 @lru_cache
