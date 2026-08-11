@@ -43,6 +43,18 @@ const fg = {
 	steel: sgr("38;5;75"),
 };
 
+const PUSH_TO_TALK_KEY = " ";
+const PUSH_TO_TALK_LABEL = "SPACE";
+// A held key sends OS auto-repeat events at an uneven cadence (a slow initial
+// repeat-delay, then jittery repeats). Comparing the gap between consecutive
+// events against a fixed window is unreliable — any one late repeat reads as
+// a deliberate second press and stops the recording mid-hold. Instead every
+// press while recording (re)arms this trailing timer; it only fires — and
+// actually stops the turn — once no further SPACE arrives before it elapses,
+// which holds up under holding the key regardless of repeat timing.
+const PUSH_TO_TALK_RELEASE_QUIET_MS = 400;
+
+
 export class MadAtcTerminal implements Component, Focusable {
 	static readonly #RADAR_FRAMES = ["◜", "◝", "◞", "◟"];
 	static readonly #WAVE_FRAMES = ["▁▂▃▄▅▆", "▂▃▄▅▆▇", "▃▄▅▆▇█", "▄▅▆▇█▇", "▃▄▅▆▇█", "▂▃▄▅▆▇"];
@@ -50,6 +62,7 @@ export class MadAtcTerminal implements Component, Focusable {
 	focused = false;
 	#ui?: TUI;
 	#client: AppClient;
+	#pushToTalkStopTimer?: NodeJS.Timeout;
 	#input = new Input();
 	#log = new ScrollView([], {
 		height: 12,
@@ -59,7 +72,7 @@ export class MadAtcTerminal implements Component, Focusable {
 		thumbChar: "█",
 	});
 	#entries: LogEntry[] = [
-		{ role: "system", text: "Frequency open. ENTER keys mic, ENTER transmits. /text <call> is the text-only fallback." },
+		{ role: "system", text: `${PUSH_TO_TALK_LABEL} keys mic, ${PUSH_TO_TALK_LABEL} transmits. /text <call> is the text-only fallback.` },
 	];
 	#status = "ready";
 	#busy = false;
@@ -68,6 +81,7 @@ export class MadAtcTerminal implements Component, Focusable {
 	#awakeTimer?: NodeJS.Timeout;
 	#awakeFrame = 0;
 	#voicePhase: "idle" | "recording" | "processing" = "idle";
+	#logFollowsBottom = true;
 	#cachedWidth = -1;
 	#cachedHeight = -1;
 	#cachedSignature = "";
@@ -91,34 +105,41 @@ export class MadAtcTerminal implements Component, Focusable {
 
 	handleInput(data: string): void {
 		if (data === "\x03") {
+			this.#clearPushToTalkStopTimer();
 			this.#disposeAwakeAnimation();
 			this.#ui?.stop();
 			return;
 		}
 		if (data === "\x12") {
 			this.#input.setValue("");
-			this.#handlePushToTalkEnter();
+			this.#handlePushToTalkKey();
 			return;
 		}
 		if (data === "\x0c") {
 			this.#entries = [];
 			this.#status = "cleared";
+			this.#logFollowsBottom = true;
 			this.#requestRender();
 			return;
 		}
 		if (data === "\x1b[5~") {
 			this.#log.page(-1);
+			this.#logFollowsBottom = false;
 			this.#requestRender();
 			return;
 		}
 		if (data === "\x1b[6~") {
 			this.#log.page(1);
+			this.#logFollowsBottom = this.#log.getScrollOffset() === this.#log.getMaxScrollOffset();
 			this.#requestRender();
 			return;
 		}
-		if ((data === "\n" || data === "\r") && (this.#voiceSession || this.#input.getValue().trim() === "" || this.#input.getValue().trim() === "/record")) {
+		if ((data === "\n" || data === "\r") && (this.#voiceSession || this.#input.getValue().trim() === "")) {
+			return;
+		}
+		if (data === PUSH_TO_TALK_KEY && (this.#voiceSession || this.#input.getValue().trim() === "" || this.#input.getValue().trim() === "/record")) {
 			if (this.#input.getValue().trim() === "/record") this.#input.setValue("");
-			this.#handlePushToTalkEnter();
+			this.#handlePushToTalkKey();
 			return;
 		}
 		this.#input.handleInput(data);
@@ -135,17 +156,17 @@ export class MadAtcTerminal implements Component, Focusable {
 		const bodyHeight = Math.max(6, height - 11);
 		this.#log.setHeight(bodyHeight);
 		this.#log.setLines(this.#renderLogLines(width));
-		this.#log.scrollToBottom();
+		if (this.#logFollowsBottom) this.#log.scrollToBottom();
 
 		const header = new Box(1, 0, undefined, {
 			chars: { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯", horizontal: "─", vertical: "│" },
 			color: this.#borderColor(),
 		});
-		header.addChild(new TruncatedText(`${fg.bold(fg.orange("MAD"))}${fg.bold(fg.white(" ATC"))} ${fg.dim("live tower")}  ${fg.steel("ENTER start/stop")} ${fg.dim("·")} ${fg.violet("/text <call>")} ${fg.dim("· PgUp/PgDn log · Ctrl+C quit")}`));
+		header.addChild(new TruncatedText(`${fg.bold(fg.orange("MAD"))}${fg.bold(fg.white(" ATC"))} ${fg.dim("live tower")}  ${fg.steel(`${PUSH_TO_TALK_LABEL} start/stop`)} ${fg.dim("·")} ${fg.violet("/text <call>")} ${fg.dim("· PgUp/PgDn log · Ctrl+C quit")}`));
 
 		const status = new Text(`${this.#statusBadge()} ${this.#status}`, 1, 0);
 		const awake = new Text(this.#renderAwakeLine(), 1, 0);
-		const hint = new Text(fg.dim(this.#voicePhase === "recording" ? "Speak now. Press ENTER again when the transmission is complete." : "Keep transmissions short. The tower has zero patience and excellent hearing."), 1, 0);
+		const hint = new Text(fg.dim(this.#voicePhase === "recording" ? `Speak now. Press ${PUSH_TO_TALK_LABEL} again when the transmission is complete.` : "Keep transmissions short. The tower has zero patience and excellent hearing."), 1, 0);
 		const prompt = new Box(1, 0, undefined, {
 			chars: { topLeft: "├", topRight: "┤", bottomLeft: "╰", bottomRight: "╯", horizontal: "─", vertical: "│" },
 			color: fg.dim,
@@ -170,8 +191,12 @@ export class MadAtcTerminal implements Component, Focusable {
 	async #submit(value: string): Promise<void> {
 		const prompt = value.trim();
 		this.#input.setValue("");
-		if (!prompt || prompt === "/record") {
-			this.#handlePushToTalkEnter();
+		if (prompt === "/record") {
+			this.#handlePushToTalkKey();
+			return;
+		}
+		if (!prompt) {
+			this.#setStatus("ready");
 			return;
 		}
 		if (prompt === "/quit" || prompt === "/exit") {
@@ -182,7 +207,7 @@ export class MadAtcTerminal implements Component, Focusable {
 			await this.#sendText(prompt.slice(6));
 			return;
 		}
-		this.#append("error", "audio is primary here — press ENTER to talk, or use /text <call> for text-only fallback");
+		this.#append("error", `audio is primary here — press ${PUSH_TO_TALK_LABEL} to talk, or use /text <call> for text-only fallback`);
 		this.#setStatus("ready");
 	}
 
@@ -216,13 +241,13 @@ export class MadAtcTerminal implements Component, Focusable {
 		}
 	}
 
-	#handlePushToTalkEnter(): void {
+	#handlePushToTalkKey(): void {
 		if (this.#voiceSession) {
 			if (!this.#voiceRecorderReady) {
 				this.#setStatus("recorder warming — wait for live before transmit");
 				return;
 			}
-			void this.#finishPushToTalk();
+			this.#armPushToTalkStop();
 			return;
 		}
 		if (this.#busy) {
@@ -240,9 +265,26 @@ export class MadAtcTerminal implements Component, Focusable {
 		void (session.ready ?? Promise.resolve()).then(() => {
 			if (this.#voiceSession !== session || this.#voicePhase !== "recording") return;
 			this.#voiceRecorderReady = true;
-			this.#append("system", "recorder live — speak, then press ENTER to transmit");
-			this.#setStatus("recording — press ENTER again to transmit");
+			this.#append("system", `recorder live — speak, then press ${PUSH_TO_TALK_LABEL} to transmit`);
+			this.#setStatus(`recording — press ${PUSH_TO_TALK_LABEL} again to transmit`);
 		});
+	}
+
+	#armPushToTalkStop(): void {
+		if (this.#pushToTalkStopTimer) {
+			clearTimeout(this.#pushToTalkStopTimer);
+		}
+		this.#pushToTalkStopTimer = setTimeout(() => {
+			this.#pushToTalkStopTimer = undefined;
+			void this.#finishPushToTalk();
+		}, PUSH_TO_TALK_RELEASE_QUIET_MS);
+	}
+
+	#clearPushToTalkStopTimer(): void {
+		if (this.#pushToTalkStopTimer) {
+			clearTimeout(this.#pushToTalkStopTimer);
+			this.#pushToTalkStopTimer = undefined;
+		}
 	}
 
 	async #finishPushToTalk(): Promise<void> {
@@ -263,6 +305,7 @@ export class MadAtcTerminal implements Component, Focusable {
 			this.#append("error", message);
 			this.#setStatus(message.includes("nothing heard") ? "ready — nothing heard, try again" : "failed — check credentials/audio services, then try again");
 		} finally {
+			this.#clearPushToTalkStopTimer();
 			this.#busy = false;
 			this.#voicePhase = "idle";
 			this.#disposeAwakeAnimation();
@@ -290,10 +333,10 @@ export class MadAtcTerminal implements Component, Focusable {
 		const radar = MadAtcTerminal.#RADAR_FRAMES[this.#awakeFrame % MadAtcTerminal.#RADAR_FRAMES.length] ?? MadAtcTerminal.#RADAR_FRAMES[0];
 		const wave = MadAtcTerminal.#WAVE_FRAMES[this.#awakeFrame % MadAtcTerminal.#WAVE_FRAMES.length] ?? MadAtcTerminal.#WAVE_FRAMES[0];
 		if (this.#voicePhase === "idle") {
-			return `${fg.dim("radar")} ${fg.green("●")} ${fg.dim("standby")} ${fg.dim("─")} ${fg.steel("press ENTER to key mic")}`;
+			return `${fg.dim("radar")} ${fg.green("●")} ${fg.dim("standby")} ${fg.dim("─")} ${fg.steel(`press ${PUSH_TO_TALK_LABEL} to key mic`)}`;
 		}
 		if (this.#voicePhase === "recording") {
-			return `${fg.cyan(radar)} ${fg.green(wave)} ${fg.yellow("MIC LIVE")} ${fg.dim("speak, then ENTER to transmit")}`;
+			return `${fg.cyan(radar)} ${fg.green(wave)} ${fg.yellow("MIC LIVE")} ${fg.dim(`speak, then ${PUSH_TO_TALK_LABEL} to transmit`)}`;
 		}
 		return `${fg.magenta(radar)} ${fg.violet(wave)} ${fg.yellow("TOWER PROCESSING")} ${fg.dim("transcribing · roasting · speaking")}`;
 	}

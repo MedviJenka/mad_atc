@@ -22,7 +22,7 @@ def test_requires_livekit_credentials(monkeypatch):
 
 
 def test_defaults_are_applied_when_only_the_keys_are_given(monkeypatch):
-    for key in ('OPENAI_MODEL', 'VERBOSE', 'LIVEKIT_TTS_MODEL', 'LIVEKIT_TTS_EMOTION', 'LIVEKIT_STT_MODEL'):
+    for key in ('OPENAI_MODEL', 'VERBOSE', 'LIVEKIT_TTS_MODEL', 'LIVEKIT_TTS_EMOTION', 'LIVEKIT_STT_MODEL', 'MAD_ATC_INPUT_DEVICE'):
         monkeypatch.delenv(key, raising=False)
 
     settings = Settings(_env_file=None, OPENAI_API_KEY='test-key', **LIVEKIT_CREDS)
@@ -35,6 +35,7 @@ def test_defaults_are_applied_when_only_the_keys_are_given(monkeypatch):
     assert settings.LIVEKIT_TTS_MODEL == 'cartesia/sonic-2'
     assert settings.LIVEKIT_TTS_EMOTION == 'angry'
     assert settings.LIVEKIT_STT_MODEL == 'deepgram/nova-3'
+    assert settings.MAD_ATC_INPUT_DEVICE is None
 
 
 def test_env_vars_override_defaults(monkeypatch):
@@ -50,6 +51,11 @@ def test_env_vars_override_defaults(monkeypatch):
     assert settings.OPENAI_MODEL == 'openai/custom-model'
     assert settings.VERBOSE is False
 
+    monkeypatch.setenv('MAD_ATC_INPUT_DEVICE', '18')
+
+    settings = Settings(_env_file=None)
+
+    assert settings.MAD_ATC_INPUT_DEVICE == '18'
 
 def test_unknown_fields_are_allowed_not_rejected():
     """model_config sets extra='allow', so an unrelated field must not raise."""
