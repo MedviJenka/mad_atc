@@ -1,20 +1,27 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, jest, test } from "bun:test";
 
 import { MadAtcTerminal } from "./app";
 
+const flushMicrotasks = async (): Promise<void> => {
+	await Promise.resolve();
+};
+
 
 describe("MadAtcTerminal", () => {
-	test("records a hold-Enter voice turn inside the Oh My Pi UI", async () => {
+	test("records an Enter-to-start, Enter-to-transmit voice turn inside the Oh My Pi UI", async () => {
 		const completed = Promise.withResolvers<void>();
 		const uiCalls: string[] = [];
+		let stopCalls = 0;
 		const app = new MadAtcTerminal({
-			pushToTalkReleaseMs: 1,
 			client: {
 				sendText: async () => {
 					throw new Error("sendText should not be called during push-to-talk");
 				},
 				startVoiceTurn: () => ({
-					stop: async () => ({ transcript: "tower request takeoff", roast: "hold short, keyboard hero", stdout: "", stderr: "", exitCode: 0 }),
+					stop: async () => {
+						stopCalls += 1;
+						return { transcript: "tower request takeoff", roast: "hold short, keyboard hero", stdout: "", stderr: "", exitCode: 0 };
+					},
 				}),
 			},
 		});
@@ -27,9 +34,20 @@ describe("MadAtcTerminal", () => {
 			},
 		});
 
-		app.handleInput("\n");
-		expect(app.render(80).join("\n")).toContain("AWAKE");
-		await completed.promise;
+		jest.useFakeTimers();
+		try {
+			app.handleInput("\n");
+			expect(app.render(80).join("\n")).toContain("MIC LIVE");
+			await flushMicrotasks();
+			jest.advanceTimersByTime(10);
+			expect(stopCalls).toBe(0);
+			expect(app.render(80).join("\n")).not.toContain("hold short, keyboard hero");
+
+			app.handleInput("\n");
+			await completed.promise;
+		} finally {
+			jest.useRealTimers();
+		}
 
 		const frame = app.render(80).join("\n");
 		expect(frame).toContain("tower request takeoff");
@@ -38,12 +56,11 @@ describe("MadAtcTerminal", () => {
 		expect(uiCalls).not.toContain("start");
 	});
 
-	test("does not release push-to-talk before the recorder is ready", async () => {
+	test("waits for a second Enter after the recorder is ready before transmitting", async () => {
 		const ready = Promise.withResolvers<void>();
 		const stopped = Promise.withResolvers<void>();
 		let stopCalls = 0;
 		const app = new MadAtcTerminal({
-			pushToTalkReleaseMs: 1,
 			client: {
 				sendText: async () => {
 					throw new Error("sendText should not be called during push-to-talk");
@@ -64,20 +81,31 @@ describe("MadAtcTerminal", () => {
 			requestRender: () => undefined,
 		});
 
-		app.handleInput("\n");
-		await Bun.sleep(10);
-		expect(stopCalls).toBe(0);
+		jest.useFakeTimers();
+		try {
+			app.handleInput("\n");
+			jest.advanceTimersByTime(10);
+			expect(stopCalls).toBe(0);
 
-		ready.resolve();
-		await stopped.promise;
+			ready.resolve();
+			await flushMicrotasks();
+			jest.advanceTimersByTime(10);
+			expect(stopCalls).toBe(0);
+
+			app.handleInput("\n");
+			await stopped.promise;
+		} finally {
+			jest.useRealTimers();
+		}
 		expect(stopCalls).toBe(1);
 	});
 
-	test("keeps repeated Enter key auto-repeat inside one push-to-talk turn", async () => {
+	test("keeps repeated Enter key auto-repeat inside one starting push-to-talk turn", async () => {
+		const ready = Promise.withResolvers<void>();
 		const stopped = Promise.withResolvers<void>();
 		let recorderRuns = 0;
+		let stopCalls = 0;
 		const app = new MadAtcTerminal({
-			pushToTalkReleaseMs: 5,
 			client: {
 				sendText: async () => {
 					throw new Error("sendText should not be called during push-to-talk");
@@ -85,7 +113,9 @@ describe("MadAtcTerminal", () => {
 				startVoiceTurn: () => {
 					recorderRuns += 1;
 					return {
+						ready: ready.promise,
 						stop: async () => {
+							stopCalls += 1;
 							stopped.resolve();
 							return { transcript: "repeat guarded", roast: "one transmission", stdout: "", stderr: "", exitCode: 0 };
 						},
@@ -99,19 +129,32 @@ describe("MadAtcTerminal", () => {
 			requestRender: () => undefined,
 		});
 
-		app.handleInput("\n");
-		app.handleInput("\n");
-		app.handleInput("\n");
-		await stopped.promise;
+		jest.useFakeTimers();
+		try {
+			app.handleInput("\n");
+			app.handleInput("\n");
+			app.handleInput("\n");
+			jest.advanceTimersByTime(10);
+			expect(recorderRuns).toBe(1);
+			expect(stopCalls).toBe(0);
+
+			ready.resolve();
+			await flushMicrotasks();
+			jest.advanceTimersByTime(10);
+			app.handleInput("\n");
+			await stopped.promise;
+		} finally {
+			jest.useRealTimers();
+		}
 
 		expect(recorderRuns).toBe(1);
+		expect(stopCalls).toBe(1);
 	});
 
 	test("ignores Enter repeats while a released recording is processing", async () => {
 		const stopStarted = Promise.withResolvers<void>();
 		const finishStop = Promise.withResolvers<void>();
 		const app = new MadAtcTerminal({
-			pushToTalkReleaseMs: 1,
 			client: {
 				sendText: async () => {
 					throw new Error("sendText should not be called during push-to-talk");
@@ -131,8 +174,16 @@ describe("MadAtcTerminal", () => {
 			requestRender: () => undefined,
 		});
 
-		app.handleInput("\n");
-		await stopStarted.promise;
+		jest.useFakeTimers();
+		try {
+			app.handleInput("\n");
+			await flushMicrotasks();
+			app.handleInput("\n");
+			jest.advanceTimersByTime(1);
+			await stopStarted.promise;
+		} finally {
+			jest.useRealTimers();
+		}
 		app.handleInput("\n");
 		app.handleInput("\n");
 		app.handleInput("\n");
@@ -144,7 +195,6 @@ describe("MadAtcTerminal", () => {
 	test("reports an empty recording as a retry instead of credentials failure", async () => {
 		const completed = Promise.withResolvers<void>();
 		const app = new MadAtcTerminal({
-			pushToTalkReleaseMs: 1,
 			client: {
 				sendText: async () => {
 					throw new Error("sendText should not be called during push-to-talk");
@@ -164,12 +214,20 @@ describe("MadAtcTerminal", () => {
 			},
 		});
 
-		app.handleInput("\n");
-		await completed.promise;
+		jest.useFakeTimers();
+		try {
+			app.handleInput("\n");
+			await flushMicrotasks();
+			app.handleInput("\n");
+			jest.advanceTimersByTime(1);
+			await completed.promise;
+		} finally {
+			jest.useRealTimers();
+		}
 
 		const frame = app.render(80).join("\n");
 		expect(frame).toContain("(nothing heard, try again)");
-		expect(frame).toContain("status:");
+		expect(frame).toContain("ready — nothing heard");
 		expect(frame).not.toContain("check credentials");
 	});
 });
