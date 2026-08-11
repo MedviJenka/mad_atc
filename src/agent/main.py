@@ -3,21 +3,35 @@ import io
 import wave
 from functools import cached_property
 from pathlib import Path
-import sys
 from crewai import Agent
 from crewai.project import CrewBase, agent
 from livekit import rtc
 from livekit.agents import inference
 from livekit.agents import stt as lk_stt
-if __package__ in {None, ''}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-    from src.config import AgentConfig
-    from src.settings import Config
-else:
-    from ..config import AgentConfig
-    from ..settings import Config
+from livekit.agents.utils.audio import AudioByteStream
+from src.config import AgentConfig
+from src.settings import Config
 
-TRANSCRIBE_TIMEOUT = 15  # seconds to wait for a final transcript before giving up
+
+TRANSCRIBE_TIMEOUT = 30  # seconds to wait for a final transcript before giving u
+
+STT_SAMPLE_RATE = 16_000
+
+STT_FRAME_SAMPLES = STT_SAMPLE_RATE // 20
+
+
+def stt_audio_frames(pcm_bytes: bytes, sample_rate: int) -> list[rtc.AudioFrame]:
+    byte_stream = AudioByteStream(sample_rate=STT_SAMPLE_RATE, num_channels=1, samples_per_channel=STT_FRAME_SAMPLES)
+    if sample_rate == STT_SAMPLE_RATE:
+        return [*byte_stream.push(pcm_bytes), *byte_stream.flush()]
+
+    source = rtc.AudioFrame(data=pcm_bytes, sample_rate=sample_rate, num_channels=1, samples_per_channel=len(pcm_bytes) // 2)
+    resampler = rtc.AudioResampler(input_rate=sample_rate, output_rate=STT_SAMPLE_RATE, num_channels=1, quality=rtc.AudioResamplerQuality.HIGH)
+    frames: list[rtc.AudioFrame] = []
+    for frame in [*resampler.push(source), *resampler.flush()]:
+        frames.extend(byte_stream.push(frame.data))
+    frames.extend(byte_stream.flush())
+    return frames
 
 
 @CrewBase
@@ -69,14 +83,8 @@ class MadAtcAgent(AgentConfig):
     async def transcribe(self, pcm_bytes: bytes, sample_rate: int = 16_000) -> str:
         """Mic PCM16 mono bytes -> transcript text (LiveKit Inference / Deepgram)."""
         stream = self.stt.stream()
-        stream.push_frame(
-            rtc.AudioFrame(
-                data=pcm_bytes,
-                sample_rate=sample_rate,
-                num_channels=1,
-                samples_per_channel=len(pcm_bytes) // 2,
-            )
-        )
+        for frame in stt_audio_frames(pcm_bytes, sample_rate):
+            stream.push_frame(frame)
         stream.end_input()
 
         async def _first_final() -> str:

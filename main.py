@@ -2,36 +2,75 @@
 import argparse
 import io
 import json
+import os
 import sys
 import wave
 import asyncio
 from collections.abc import Callable
+from dataclasses import dataclass
 import numpy as np
 import sounddevice as sd
 from livekit.agents.utils import http_context
-
 from src.agent.main import MadAtcAgent
 from src.cli_output import create_cli_logger, labeled_line, log_colored
+from src.settings import Config
 
-SAMPLE_RATE = 16_000
-MIN_AUDIO_BYTES = 3_200  # ~0.1s at 16kHz/16-bit mono; anything under this is silence
+MIN_AUDIO_SECONDS = 0.1
 
 
-def record_until_enter(on_ready: Callable[[], None] | None = None) -> bytes:
+@dataclass(frozen=True)
+class AudioCapture:
+    pcm_bytes: bytes
+    sample_rate: int
+    device_name: str
+    duration_seconds: float
+    audio_bytes: int
+    peak: int
+    rms: float
+
+
+def minimum_audio_bytes(sample_rate: int) -> int:
+    return int(sample_rate * MIN_AUDIO_SECONDS) * 2
+
+
+def record_until_enter(on_ready: Callable[[], None] | None = None) -> AudioCapture:
     """Record mono mic audio after the input stream is open until ENTER is received."""
     frames: list[np.ndarray] = []
+    raw_device = os.environ.get('MAD_ATC_INPUT_DEVICE') or Config.MAD_ATC_INPUT_DEVICE
+    input_device = int(raw_device) if raw_device and raw_device.isdecimal() else raw_device
+    device_info = sd.query_devices(input_device, 'input')
+    sample_rate = int(device_info['default_samplerate'])
 
     def callback(indata, _frame_count, _time_info, _status) -> None:
         frames.append(indata.copy())
 
-    with sd.InputStream(samplerate=SAMPLE_RATE, channels=1, dtype='int16', callback=callback):
+    with sd.InputStream(device=input_device, samplerate=sample_rate, channels=1, dtype='int16', callback=callback):
         if on_ready is not None:
             on_ready()
         input()
 
     audio = np.concatenate(frames, axis=0) if frames else np.zeros((0, 1), dtype='int16')
-    return audio.tobytes()
+    samples = audio.reshape(-1).astype(np.float64)
+    peak = int(np.max(np.abs(samples))) if samples.size else 0
+    rms = float(np.sqrt(np.mean(samples * samples))) if samples.size else 0.0
+    pcm_bytes = audio.tobytes()
+    return AudioCapture(
+        pcm_bytes=pcm_bytes,
+        sample_rate=sample_rate,
+        device_name=str(device_info['name']),
+        duration_seconds=len(pcm_bytes) / (sample_rate * 2),
+        audio_bytes=len(pcm_bytes),
+        peak=peak,
+        rms=rms,
+    )
 
+
+def capture_diagnostic(capture: AudioCapture) -> str:
+    return (
+        f"mic={capture.device_name}; rate={capture.sample_rate}Hz; "
+        f"duration={capture.duration_seconds:.2f}s; bytes={capture.audio_bytes}; "
+        f"peak={capture.peak}; rms={capture.rms:.1f}"
+    )
 
 def play(wav_bytes: bytes) -> None:
     with wave.open(io.BytesIO(wav_bytes), 'rb') as wav_file:
@@ -47,18 +86,18 @@ async def run_once() -> int:
     async with http_context.open() as http_session:
         agent.bind_http_session(http_session)
         logger = create_cli_logger()
-        pcm_bytes = record_until_enter(lambda: logger.info('🎙️  recording... release ENTER to transmit', color='bold cyan'))
-        if len(pcm_bytes) < MIN_AUDIO_BYTES:
-            logger.info('(nothing heard, try again)', color='yellow')
+        capture = record_until_enter(lambda: logger.info('🎙️  recording... press ENTER to transmit', color='bold cyan'))
+        if capture.audio_bytes < minimum_audio_bytes(capture.sample_rate):
+            logger.info(f'(nothing heard, try again — {capture_diagnostic(capture)})', color='yellow')
             return 2
 
         try:
-            transcript = await agent.transcribe(pcm_bytes, sample_rate=SAMPLE_RATE)
+            transcript = await agent.transcribe(capture.pcm_bytes, sample_rate=capture.sample_rate)
         except Exception as exc:
             logger.info(f'(could not transcribe that, try again — {exc})', color='red')
             return 3
         if not transcript.strip():
-            logger.info('(nothing heard, try again)', color='yellow')
+            logger.info(f'(nothing transcribed, try again — {capture_diagnostic(capture)})', color='yellow')
             return 2
 
         log_colored(logger, 'you:   ', transcript, 'bold green')
@@ -83,18 +122,18 @@ async def run() -> None:
                 logger.info('\ntower out.')
                 break
 
-            pcm_bytes = record_until_enter(lambda: logger.info('🎙️  recording... press ENTER to stop', color='bold cyan'))
-            if len(pcm_bytes) < MIN_AUDIO_BYTES:
-                logger.info('(nothing heard, try again)\n', color='yellow')
+            capture = record_until_enter(lambda: logger.info('🎙️  recording... press ENTER to transmit', color='bold cyan'))
+            if capture.audio_bytes < minimum_audio_bytes(capture.sample_rate):
+                logger.info(f'(nothing heard, try again — {capture_diagnostic(capture)})\n', color='yellow')
                 continue
 
             try:
-                transcript = await agent.transcribe(pcm_bytes, sample_rate=SAMPLE_RATE)
+                transcript = await agent.transcribe(capture.pcm_bytes, sample_rate=capture.sample_rate)
             except Exception as exc:
                 logger.info(f'(could not transcribe that, try again — {exc})\n', color='red')
                 continue
             if not transcript.strip():
-                logger.info('(nothing heard, try again)\n', color='yellow')
+                logger.info(f'(nothing transcribed, try again — {capture_diagnostic(capture)})\n', color='yellow')
                 continue
             log_colored(logger, 'you:   ', transcript, 'bold green')
 

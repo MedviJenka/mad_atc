@@ -30,6 +30,12 @@ class _FakeInputStream:
         return False
 
 
+def _fake_input_device(_device=None, kind='input'):
+    assert kind == 'input'
+    return {'name': 'Test Mic', 'default_samplerate': 48_000}
+
+
+
 def test_record_until_enter_reports_ready_after_input_stream_is_open(monkeypatch):
     events = []
 
@@ -46,6 +52,7 @@ def test_record_until_enter_reports_ready_after_input_stream_is_open(monkeypatch
             return False
 
     monkeypatch.setattr(mad_atc_main.sd, 'InputStream', DelayedFakeInputStream())
+    monkeypatch.setattr(mad_atc_main.sd, 'query_devices', _fake_input_device)
     monkeypatch.setattr('builtins.input', lambda *a, **k: events.append('stop-wait'))
 
     mad_atc_main.record_until_enter(on_ready=lambda: events.append('ready'))
@@ -56,24 +63,47 @@ def test_record_until_enter_reports_ready_after_input_stream_is_open(monkeypatch
 def test_record_until_enter_captures_raw_pcm16_audio(monkeypatch):
     chunk = np.array([[1], [2], [3]], dtype='int16')
     monkeypatch.setattr(mad_atc_main.sd, 'InputStream', _FakeInputStream(chunks=[chunk]))
+    monkeypatch.setattr(mad_atc_main.sd, 'query_devices', _fake_input_device)
     monkeypatch.setattr('builtins.input', lambda *a, **k: '')
 
-    pcm_bytes = mad_atc_main.record_until_enter()
+    capture = mad_atc_main.record_until_enter()
 
-    assert _FakeInputStream.last_kwargs['samplerate'] == mad_atc_main.SAMPLE_RATE
+    assert _FakeInputStream.last_kwargs['samplerate'] == 48_000
     assert _FakeInputStream.last_kwargs['channels'] == 1
-    assert list(np.frombuffer(pcm_bytes, dtype='int16')) == [1, 2, 3]
+    assert _FakeInputStream.last_kwargs['device'] is None
+    assert capture.sample_rate == 48_000
+    assert capture.device_name == 'Test Mic'
+    assert capture.duration_seconds == 3 / 48_000
+    assert capture.peak == 3
+    assert capture.rms > 2
+    assert list(np.frombuffer(capture.pcm_bytes, dtype='int16')) == [1, 2, 3]
+
+def test_record_until_enter_honors_configured_input_device(monkeypatch):
+    chunk = np.array([[10], [20]], dtype='int16')
+    monkeypatch.setenv('MAD_ATC_INPUT_DEVICE', '16')
+    monkeypatch.setattr(mad_atc_main.sd, 'query_devices', _fake_input_device)
+    monkeypatch.setattr(mad_atc_main.sd, 'InputStream', _FakeInputStream(chunks=[chunk]))
+    monkeypatch.setattr('builtins.input', lambda *a, **k: '')
+
+    capture = mad_atc_main.record_until_enter()
+
+    assert _FakeInputStream.last_kwargs['device'] == 16
+    assert capture.sample_rate == 48_000
+    assert capture.device_name == 'Test Mic'
+
+
 
 
 def test_record_until_enter_with_no_audio_yields_empty_bytes(monkeypatch):
     monkeypatch.setattr(mad_atc_main.sd, 'InputStream', _FakeInputStream(chunks=[]))
+    monkeypatch.setattr(mad_atc_main.sd, 'query_devices', _fake_input_device)
     monkeypatch.setattr('builtins.input', lambda *a, **k: '')
 
-    pcm_bytes = mad_atc_main.record_until_enter()
+    capture = mad_atc_main.record_until_enter()
 
-    # run()'s "nothing heard" branch relies on this being under MIN_AUDIO_BYTES.
-    assert len(pcm_bytes) == 0
-    assert len(pcm_bytes) < mad_atc_main.MIN_AUDIO_BYTES
+    # run()'s "nothing heard" branch relies on this being under the minimum duration.
+    assert len(capture.pcm_bytes) == 0
+    assert capture.audio_bytes < mad_atc_main.minimum_audio_bytes(capture.sample_rate)
 
 
 def test_play_sends_decoded_samples_and_framerate_to_sounddevice(monkeypatch):
@@ -122,8 +152,8 @@ async def test_run_once_records_transcribes_roasts_and_speaks(monkeypatch, capsy
 
         async def transcribe(self, pcm_bytes, sample_rate):
             assert context_events == ['enter']
-            assert pcm_bytes == b'1' * mad_atc_main.MIN_AUDIO_BYTES
-            assert sample_rate == mad_atc_main.SAMPLE_RATE
+            assert pcm_bytes == b'1' * mad_atc_main.minimum_audio_bytes(48_000)
+            assert sample_rate == 48_000
             return 'tower request takeoff'
 
         async def roast(self, transcript):
@@ -137,7 +167,15 @@ async def test_run_once_records_transcribes_roasts_and_speaks(monkeypatch, capsy
     def fake_record_until_enter(on_ready=None):
         if on_ready is not None:
             on_ready()
-        return b'1' * mad_atc_main.MIN_AUDIO_BYTES
+        return mad_atc_main.AudioCapture(
+            pcm_bytes=b'1' * mad_atc_main.minimum_audio_bytes(48_000),
+            sample_rate=48_000,
+            device_name='Test Mic',
+            duration_seconds=0.1,
+            audio_bytes=mad_atc_main.minimum_audio_bytes(48_000),
+            peak=1000,
+            rms=200.0,
+        )
 
     fake_play = MagicMock()
     monkeypatch.setattr(mad_atc_main, 'MadAtcAgent', FakeAgent)
